@@ -8,9 +8,41 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const STUDYSPARK_API_BASE = process.env.STUDYSPARK_API_BASE || 'https://studyspark.site/api';
 
+// Performance optimizations
+const axiosInstance = axios.create({
+  timeout: 15000, // Reduce timeout for faster responses
+  maxRedirects: 2,
+  httpAgent: new require('http').Agent({ keepAlive: true }),
+  httpsAgent: new require('https').Agent({ keepAlive: true })
+});
+
+// Simple in-memory cache
+const cache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+const getCacheKey = (batchId, subjectId, childId) => `${batchId}-${subjectId}-${childId}`;
+const getFromCache = (key) => {
+  const cached = cache.get(key);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data;
+  }
+  cache.delete(key);
+  return null;
+};
+const setCache = (key, data) => {
+  cache.set(key, { data, timestamp: Date.now() });
+};
+
 // Middleware
-app.use(cors());
-app.use(express.json());
+app.use(cors({
+  origin: '*', // Allow all origins
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'X-Client-Info', 'X-User-Agent', 'X-Device-Id'],
+  credentials: true,
+  optionsSuccessStatus: 200 // Some legacy browsers choke on 204
+}));
+app.use(express.json({ limit: '10mb' })); // Increase payload limit
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Helper function to extract KID from MPD content
 const extractKidFromMpd = (mpdContent) => {
@@ -42,11 +74,11 @@ const extractKidFromMpd = (mpdContent) => {
 // Helper function to get DRM keys from StudySpark
 const getDrmKeys = async (kid) => {
   try {
-    const response = await axios.post(`${STUDYSPARK_API_BASE}/otp`, 
+    const response = await axiosInstance.post(`${STUDYSPARK_API_BASE}/otp`, 
       { kid: kid },
       {
         headers: generateHeaders(),
-        timeout: 30000
+        timeout: 10000 // Faster timeout for DRM keys
       }
     );
     
@@ -130,17 +162,25 @@ app.get('/api/get-video-url-details', async (req, res) => {
       });
     }
 
+    // Check cache first
+    const cacheKey = getCacheKey(batchId, subjectId, childId);
+    const cachedResponse = getFromCache(cacheKey);
+    if (cachedResponse) {
+      console.log('📋 Cache hit for:', cacheKey);
+      return res.json(cachedResponse);
+    }
+
     console.log(`Fetching video URL for batchId: ${batchId}, subjectId: ${subjectId}, childId: ${childId}`);
 
-    // Make request to StudySpark API
-    const response = await axios.post(`${STUDYSPARK_API_BASE}/video-url`, 
+    // Make request to StudySpark API using optimized instance
+    const response = await axiosInstance.post(`${STUDYSPARK_API_BASE}/video-url`, 
       {
         batchId: batchId,
         childId: childId
       },
       {
         headers: generateHeaders(),
-        timeout: 30000
+        timeout: 15000
       }
     );
 
@@ -159,7 +199,7 @@ app.get('/api/get-video-url-details', async (req, res) => {
         try {
           console.log('🔐 Fetching MPD file for DRM extraction...');
           const completeVideoUrl = videoUrl + (decryptedData.data?.signedUrl || '');
-          const mpdResponse = await axios.get(completeVideoUrl, {
+          const mpdResponse = await axiosInstance.get(completeVideoUrl, {
             headers: {
               'accept': '*/*',
               'accept-language': 'en-GB,en-US;q=0.9,en;q=0.8',
@@ -172,7 +212,7 @@ app.get('/api/get-video-url-details', async (req, res) => {
               'sec-fetch-site': 'cross-site',
               'referrer': 'https://studyspark.site/'
             },
-            timeout: 30000
+            timeout: 10000 // Faster timeout for MPD
           });
           
           const kid = extractKidFromMpd(mpdResponse.data);
@@ -200,7 +240,7 @@ app.get('/api/get-video-url-details', async (req, res) => {
       const completeVideoUrl = videoUrl + (decryptedData.data?.signedUrl || '');
       
       // Return the decrypted response with OpenSpace branding and DRM info
-      res.json({
+      const finalResponse = {
         success: true,
         source: 'OpenSpace',
         powered_by: 'Satyam RojhaX',
@@ -217,7 +257,13 @@ app.get('/api/get-video-url-details', async (req, res) => {
         url_type: decryptedData.data?.urlType || 'penpencilvdo',
         drm: drmInfo,
         timestamp: new Date().toISOString()
-      });
+      };
+
+      // Cache the response
+      setCache(cacheKey, finalResponse);
+      console.log('💾 Cached response for:', cacheKey);
+      
+      res.json(finalResponse);
     } else {
       // Return encrypted response if decryption fails
       res.json({

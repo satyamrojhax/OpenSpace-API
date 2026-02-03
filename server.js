@@ -288,7 +288,7 @@ app.get('/', (req, res) => {
     source: 'OpenSpace',
     powered_by: 'Satyam RojhaX',
     endpoints: {
-      'GET /api/get-video-url-details': 'Get video URL details from StudySpark',
+      'GET /api/get-video-url-details': 'Get video URL details from OpenSpace',
       'GET /health': 'Health check endpoint'
     },
     parameters: {

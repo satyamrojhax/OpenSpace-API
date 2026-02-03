@@ -37,12 +37,34 @@ const setCache = (key, data) => {
 app.use(cors({
   origin: '*', // Allow all origins
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'X-Client-Info', 'X-User-Agent', 'X-Device-Id'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'X-Client-Info', 'X-User-Agent', 'X-Device-Id', 'Author'],
   credentials: true,
   optionsSuccessStatus: 200 // Some legacy browsers choke on 204
 }));
 app.use(express.json({ limit: '10mb' })); // Increase payload limit
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Author header validation middleware
+app.use((req, res, next) => {
+  const authorHeader = req.headers.author;
+  
+  // Skip validation for health check and root endpoints
+  if (req.path === '/health' || req.path === '/' || req.path === '/api') {
+    return next();
+  }
+  
+  // Check for required Author header
+  if (!authorHeader || authorHeader !== 'Satyam RojhaX') {
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized',
+      message: 'Missing or invalid Author header. Required: Author: Satyam RojhaX',
+      timestamp: new Date().toISOString()
+    });
+  }
+  
+  next();
+});
 
 // Helper function to extract KID from MPD content
 const extractKidFromMpd = (mpdContent) => {

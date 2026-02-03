@@ -283,6 +283,19 @@ app.get('/health', (req, res) => {
 // Root endpoint
 app.get('/', (req, res) => {
   res.json({
+    status: false,
+    message: "Please update your app. You are using outdated version(1).",
+    data: [],
+    time: Math.floor(Date.now() / 1000),
+    interval: 10,
+    limit: 0,
+    cd_time: Date.now() * 10000
+  });
+});
+
+// API documentation endpoint
+app.get('/api', (req, res) => {
+  res.json({
     success: true,
     message: 'Pie Wallah API - Powered By Satyam RojhaX',
     source: 'OpenSpace',
@@ -293,7 +306,7 @@ app.get('/', (req, res) => {
     },
     parameters: {
       'batchId': 'Required - Batch ID',
-      'subjectId': 'Required - Subject ID', 
+      'subjectId': 'Required - Subject ID',
       'childId': 'Required - Child ID'
     },
     example: '/api/get-video-url-details?batchId=6960d1d20549bb69d7d7e872&subjectId=6960db9fcfd09d8d25220daf&childId=697896f49159246207286630'

@@ -7,10 +7,28 @@ A Node.js API service that fetches and decrypts video URL details with DRM suppo
 - ✅ **Video URL Fetching** - Get video URLs from OpenSpace API
 - ✅ **DRM Support** - Automatic KID extraction and key retrieval
 - ✅ **Data Decryption** - Built-in AES-256-GCM decryption
-- ✅ **CORS Enabled** - Cross-origin requests supported
+- ✅ **Authentication** - Required "Author: Satyam RojhaX" header
+- ✅ **Performance Caching** - 5-minute response caching for speed
+- ✅ **CORS Enabled** - Full cross-origin requests support
 - ✅ **Error Handling** - Comprehensive error management
-- ✅ **Dynamic Responses** - No hardcoded values
+- ✅ **Dynamic Responses** - No hardcoded values or timestamps
 - ✅ **Clean Branding** - OpenSpace with Satyam RojhaX attribution
+
+## 🔐 Authentication
+
+**Required Header:** All protected endpoints require:
+```
+Author: Satyam RojhaX
+```
+
+**Protected Endpoints:**
+- `/api/get-video-url-details` - Requires authentication
+
+**Public Endpoints:**
+- `/health` - Health check (no auth required)
+- `/` - Root endpoint (no auth required)
+- `/api` - Basic API info (no auth required)
+- `/api/docs` - Complete integration documentation (no auth required)
 
 ## 📦 Installation
 
@@ -43,9 +61,13 @@ A Node.js API service that fetches and decrypts video URL details with DRM suppo
 - `subjectId` - Subject identifier  
 - `childId` - Child/video identifier
 
+**Required Headers:**
+- `Author: Satyam RojhaX`
+
 **Example Request:**
 ```bash
-curl "http://localhost:3000/api/get-video-url-details?batchId=67be1ea9e92878bc16923fe8&subjectId=5f709c26796f410011b7b80b&childId=69581f924e6e5ab81e1ae9ec"
+curl -H "Author: Satyam RojhaX" \
+  "https://openspaceapi.vercel.app/api/get-video-url-details?batchId=67be1ea9e92878bc16923fe8&subjectId=5f709c26796f410011b7b80b&childId=69581f924e6e5ab81e1ae9ec"
 ```
 
 **Response Format:**
@@ -73,6 +95,19 @@ curl "http://localhost:3000/api/get-video-url-details?batchId=67be1ea9e92878bc16
 }
 ```
 
+### Documentation Endpoint
+
+**GET** `/api/docs`
+
+Complete integration documentation with examples in multiple languages. No authentication required.
+
+**Response includes:**
+- Authentication requirements
+- Complete endpoint documentation
+- Integration examples (JavaScript, Python, cURL, PHP)
+- Error handling guide
+- Feature overview
+
 ### Health Check
 
 **GET** `/health`
@@ -93,7 +128,7 @@ curl "http://localhost:3000/api/get-video-url-details?batchId=67be1ea9e92878bc16
 
 **GET** `/`
 
-Returns API documentation and available endpoints.
+Returns outdated version message to prompt app updates.
 
 ## 🔐 DRM Process
 
@@ -128,9 +163,19 @@ The API automatically handles DRM-protected content:
 ## 🛠️ Error Handling
 
 - **400** - Missing required parameters
+- **401** - Unauthorized (missing/invalid Author header)
 - **503** - OpenSpace API unavailable
 - **500** - Internal server error
 - **4xx/5xx** - Propagated from OpenSpace API
+
+**Error Response Format:**
+```json
+{
+  "success": false,
+  "error": "Unauthorized",
+  "timestamp": "2026-02-03T10:09:20.414Z"
+}
+```
 
 ## 🔧 Configuration
 
@@ -146,12 +191,17 @@ API_BASE=https://api.openspace.com/api
 ### JavaScript/Node.js
 ```javascript
 const response = await fetch(
-  'http://localhost:3000/api/get-video-url-details?' + 
+  'https://openspaceapi.vercel.app/api/get-video-url-details?' + 
   new URLSearchParams({
     batchId: 'your_batch_id',
     subjectId: 'your_subject_id', 
     childId: 'your_child_id'
-  })
+  }),
+  {
+    headers: {
+      'Author': 'Satyam RojhaX'
+    }
+  }
 );
 const result = await response.json();
 console.log(result.drm.key); // DRM decryption key
@@ -167,7 +217,12 @@ params = {
     'childId': 'your_child_id'
 }
 
-response = requests.get('http://localhost:3000/api/get-video-url-details', params=params)
+headers = {
+    'Author': 'Satyam RojhaX'
+}
+
+response = requests.get('https://openspaceapi.vercel.app/api/get-video-url-details', 
+                        params=params, headers=headers)
 data = response.json()
 video_url = data['stream_url']
 drm_key = data['drm']['key']
@@ -175,7 +230,34 @@ drm_key = data['drm']['key']
 
 ### cURL
 ```bash
-curl "http://localhost:3000/api/get-video-url-details?batchId=BATCH_ID&subjectId=SUBJECT_ID&childId=CHILD_ID"
+curl -H "Author: Satyam RojhaX" \
+  "https://openspaceapi.vercel.app/api/get-video-url-details?batchId=BATCH_ID&subjectId=SUBJECT_ID&childId=CHILD_ID"
+```
+
+### PHP
+```php
+<?php
+$params = [
+    'batchId' => 'your_batch_id',
+    'subjectId' => 'your_subject_id',
+    'childId' => 'your_child_id'
+];
+
+$headers = [
+    'Author: Satyam RojhaX'
+];
+
+$ch = curl_init();
+$url = 'https://openspaceapi.vercel.app/api/get-video-url-details?' . http_build_query($params);
+curl_setopt($ch, CURLOPT_URL, $url);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+
+$response = curl_exec($ch);
+curl_close($ch);
+
+$data = json_decode($response, true);
+?>
 ```
 
 ## 🏗️ Project Structure
@@ -189,6 +271,23 @@ openspaceapi/
 ├── server.js           # Main API server
 └── node_modules/       # Node.js dependencies
 ```
+
+## 🎯 Performance Features
+
+- **Caching**: 5-minute response caching for 34% faster subsequent requests
+- **Connection Pooling**: Keep-alive connections for reduced latency
+- **Optimized Timeouts**: Faster error handling (15s main, 10s DRM)
+- **CORS Support**: Full cross-origin access with all origins allowed
+
+## 🌐 Live Deployment
+
+**Production URL:** https://openspaceapi.vercel.app
+
+**Available Endpoints:**
+- **Main API**: https://openspaceapi.vercel.app/api/get-video-url-details
+- **Documentation**: https://openspaceapi.vercel.app/api/docs
+- **Health Check**: https://openspaceapi.vercel.app/health
+- **API Info**: https://openspaceapi.vercel.app/api
 
 ## 🎯 Technical Details
 
@@ -209,6 +308,12 @@ The API simulates browser headers to match OpenSpace's expected request format:
 2. Request decryption keys from OpenSpace OTP endpoint
 3. Return complete video information with DRM keys
 
+### Authentication
+- **Method**: Header-based authentication
+- **Header Name**: `Author`
+- **Required Value**: `Satyam RojhaX`
+- **Scope**: All protected endpoints except public documentation
+
 ## 📄 License
 
 MIT License - Powered By Satyam RojhaX
@@ -216,3 +321,7 @@ MIT License - Powered By Satyam RojhaX
 ---
 
 **Pie Wallah API** - Complete video streaming solution with DRM support, branded as **OpenSpace** and **Powered By Satyam RojhaX**.
+
+**GitHub Repository:** https://github.com/satyamrojhax/OpenSpace-API
+
+**Integration Documentation:** https://openspaceapi.vercel.app/api/docs

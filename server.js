@@ -49,7 +49,7 @@ app.use((req, res, next) => {
   const authorHeader = req.headers.author;
   
   // Skip validation for health check and root endpoints
-  if (req.path === '/health' || req.path === '/' || req.path === '/api') {
+  if (req.path === '/health' || req.path === '/' || req.path === '/api' || req.path === '/api/docs') {
     return next();
   }
   

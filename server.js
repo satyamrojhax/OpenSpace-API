@@ -20,6 +20,10 @@ const axiosInstance = axios.create({
 const cache = new Map();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
+// Token cache for verified JWT tokens
+const tokenCache = new Map();
+const TOKEN_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
 const getCacheKey = (batchId, subjectId, childId) => `${batchId}-${subjectId}-${childId}`;
 const getFromCache = (key) => {
   const cached = cache.get(key);
@@ -95,10 +99,11 @@ const extractKidFromMpd = (mpdContent) => {
 // Helper function to get DRM keys from StudySpark
 const getDrmKeys = async (kid) => {
   try {
+    const headers = await generateHeaders();
     const response = await axiosInstance.post(`${STUDYSPARK_API_BASE}/otp`, 
       { kid: kid },
       {
-        headers: generateHeaders(),
+        headers: headers,
         timeout: 10000 // Faster timeout for DRM keys
       }
     );
@@ -142,17 +147,102 @@ const decryptStudySparkData = (encryptedData, iv) => {
   }
 };
 
-// Helper function to generate random headers
-const generateHeaders = () => {
+// Helper function to verify JWT token with key.pwxavengers.xyz
+const verifyJwtToken = async (token) => {
+  try {
+    // Check token cache first
+    const cachedToken = tokenCache.get(token);
+    if (cachedToken && Date.now() - cachedToken.timestamp < TOKEN_CACHE_TTL) {
+      console.log('📋 Token cache hit');
+      return cachedToken.data;
+    }
+
+    console.log('🔐 Verifying JWT token...');
+    const response = await axiosInstance.post('https://key.pwxavengers.xyz/api/verify', 
+      { token: token },
+      {
+        headers: {
+          'accept': '*/*',
+          'accept-language': 'en-US,en;q=0.9',
+          'content-type': 'application/json',
+          'origin': 'https://studyspark.site',
+          'referer': 'https://studyspark.site/'
+        },
+        timeout: 10000
+      }
+    );
+    
+    if (response.data && response.data.success && response.data.data && response.data.data.valid) {
+      const tokenData = {
+        userId: response.data.data.userId,
+        token: response.data.data.token,
+        expires: response.data.data.expires,
+        expiresISO: response.data.data.expiresISO,
+        valid: response.data.data.valid
+      };
+      
+      // Cache the verified token
+      tokenCache.set(token, { data: tokenData, timestamp: Date.now() });
+      console.log('✅ JWT token verified successfully');
+      return tokenData;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('❌ Error verifying JWT token:', error.message);
+    return null;
+  }
+};
+
+// Helper function to generate device ID in JWT format
+const generateDeviceId = (userId, sessionId) => {
+  const jwtPayload = {
+    userId: userId,
+    sessionId: sessionId,
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + (2 * 24 * 60 * 60) // 2 days expiry
+  };
+  
+  // This is a simplified version - in real implementation, you'd use proper JWT signing
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
+  const encodedPayload = Buffer.from(JSON.stringify(jwtPayload)).toString('base64url');
+  
+  // For demo purposes, using a mock signature
+  const signature = 'ZXlKaGJHY2lPaUpJVXpJMU5pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SjFjMlZ5U1dRaU9pSTNOemN5T0RNMElpd2ljMlZ6YzJsdmJrbGtJam9pWVhod1kyVnlhWFl6ZFcxNk9ETnJkRGN5Tm1GMklpd2lhV0YwSWpveE56Y3dOVEl5TXpBNExDSmxlSEFpT2pFM056QTJPVFV4TURoOS5zZWNyZXQ';
+  
+  return `${encodedHeader}.${encodedPayload}.${signature}`;
+};
+
+// Helper function to generate random headers with proper device ID
+const generateHeaders = async (useRealToken = true) => {
   const timestamp = Date.now();
-  const randomDeviceId = Math.random().toString(36).substring(2, 15);
+  let deviceId;
+  
+  if (useRealToken) {
+    // Try to get a valid token from cache or generate new one
+    const cachedTokens = Array.from(tokenCache.keys());
+    if (cachedTokens.length > 0) {
+      deviceId = cachedTokens[0]; // Use first cached token
+    } else {
+      // Generate a new device ID with mock user data
+      deviceId = generateDeviceId('7772834', 'axpceriv3umz83kdt726av');
+      
+      // Verify the token to get it cached
+      await verifyJwtToken(deviceId);
+    }
+  } else {
+    // Fallback to random device ID
+    deviceId = Math.random().toString(36).substring(2, 15);
+  }
+  
   const randomUserAgent = Array.from({length: 64}, () => 
     Math.floor(Math.random() * 16).toString(16)
   ).join('');
 
   return {
     'accept': 'application/json',
-    'accept-language': 'en-GB,en-US;q=0.9,en;q=0.8',
+    'accept-language': 'en-US,en;q=0.9',
     'content-type': 'application/json',
     'priority': 'u=1, i',
     'sec-ch-ua': '"Not(A:Brand";v="8", "Chromium";v="144", "Google Chrome";v="144"',
@@ -162,7 +252,7 @@ const generateHeaders = () => {
     'sec-fetch-mode': 'cors',
     'sec-fetch-site': 'same-origin',
     'x-client-info': timestamp.toString(),
-    'x-device-id': randomDeviceId,
+    'x-device-id': deviceId,
     'x-user-agent': randomUserAgent,
     'origin': 'https://studyspark.site',
     'referer': 'https://studyspark.site/'
@@ -194,13 +284,14 @@ app.get('/api/get-video-url-details', async (req, res) => {
     console.log(`Fetching video URL for batchId: ${batchId}, subjectId: ${subjectId}, childId: ${childId}`);
 
     // Make request to StudySpark API using optimized instance
+    const headers = await generateHeaders();
     const response = await axiosInstance.post(`${STUDYSPARK_API_BASE}/video-url`, 
       {
         batchId: batchId,
         childId: childId
       },
       {
-        headers: generateHeaders(),
+        headers: headers,
         timeout: 15000
       }
     );
@@ -335,6 +426,46 @@ app.get('/api/get-video-url-details', async (req, res) => {
   }
 });
 
+// Token verification endpoint
+app.post('/api/verify-token', async (req, res) => {
+  try {
+    const { token } = req.body;
+    
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        error: 'Token is required',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const tokenData = await verifyJwtToken(token);
+    
+    if (tokenData) {
+      res.json({
+        success: true,
+        message: 'Token verified successfully',
+        data: tokenData,
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      res.status(401).json({
+        success: false,
+        error: 'Invalid or expired token',
+        timestamp: new Date().toISOString()
+      });
+    }
+  } catch (error) {
+    console.error('Error in token verification endpoint:', error.message);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      details: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
@@ -369,6 +500,7 @@ app.get('/api', (req, res) => {
     powered_by: 'Satyam RojhaX',
     endpoints: {
       'GET /api/get-video-url-details': 'Get video URL details from OpenSpace',
+      'POST /api/verify-token': 'Verify JWT token for authentication',
       'GET /health': 'Health check endpoint'
     },
     parameters: {
